@@ -38,8 +38,6 @@ class OCRProcessor:
 
         # PaddleOCR result structure: result[0] is a list of [box, (text, confidence)]
         # box: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
-        print("rec_polys : ", len(result[0]['rec_polys']))
-        print("rec_texts : ", len(result[0]['rec_texts']))
         
         raw_boxes = result[0]['rec_polys']
         raw_texts = result[0]['rec_texts']
@@ -64,66 +62,111 @@ class OCRProcessor:
         
         return grouped_boxes, grouped_texts
 
-    def _sort_boxes(self, items, y_threshold=20):
+    def _sort_boxes(self, items, x_threshold=20, y_threshold=20):
         """
-        Sort bounding boxes based on Y coordinate and group them by proximity.
+        Sorts (groups) boxes using spatial clustering.
+        Combines boxes that are close to each other (in both X and Y) into a single "balloon".
         
         Args:
-            items (list): List of (box, text) tuples. 
-            y_threshold (int): proper distance to group simultaneous lines.
+            items (list): List of (box, text) tuples.
+            x_threshold (int): Maximum horizontal gap to consider as connected.
+            y_threshold (int): Maximum vertical gap to consider as connected.
             
         Returns:
-            list: List of groups, where each group is a list of (box, text) sorted by Y.
+            list: List of groups, where each group is a list of (box, text) sorted by reading order.
         """
-        # Helper function to get top-left Y coordinate
-        def get_y(item):
-            # item is (box, text)
-            box = item[0]
-            # box is geometric box points [[x,y],...]
-            if hasattr(box, "shape") and box.shape == (4, 2):
-                return min(p[1] for p in box)
-            # Fallback for standard list structure if needed
-            return min(p[1] for p in box[0])
-
-        # Initial sort by Y
-        # items is a list of tuples, so tolist check is not needed/applicable for the outer list
-        # Ensure items is a list
-        if not isinstance(items, list):
-             items = list(items)
-             
-        items = sorted(items, key=get_y)
-        
-        grouped_boxes = []
-        
         if not items:
-            return grouped_boxes
-            
-        # Initialize first group
-        current_group = [items[0]]
-        # Reference Y is the Y of the first box in the current group
-        last_y = get_y(items[0])
-        
-        for i in range(1, len(items)):
-            item = items[i]
-            y = get_y(item)
-            
-            # Check if the current box is in the same group (close Y)
-            # print("abs(y - last_y) : ", abs(y - last_y))
-            if abs(y - last_y) <= y_threshold:
-                current_group.append(item)
+            return []
+
+        # 1. Prepare data: Calculate bounding rect (min_x, min_y, max_x, max_y) for each box
+        # We keep track of indices to merge them later
+        n = len(items)
+        rects = []
+        for i, (box, text) in enumerate(items):
+            # box is a 2D array-like of 4 points: [[x1, y1], ..., [x4, y4]]
+            # convert to list of points to handle both numpy and list types
+            if hasattr(box, "tolist"):
+                points = box.tolist()
             else:
-                # End of current group
-                grouped_boxes.append(current_group)
-                
-                # Start new group
-                current_group = [item]
-                last_y = y
-                
-        # Append the last group
-        if current_group:
-            grouped_boxes.append(current_group)
+                points = box
             
-        return grouped_boxes
+            xs = [p[0] for p in points]
+            ys = [p[1] for p in points]
+            
+            rects.append({
+                'index': i,
+                'min_x': min(xs),
+                'max_x': max(xs),
+                'min_y': min(ys),
+                'max_y': max(ys)
+            })
+
+        # 2. Build Adjacency Graph
+        # We use an adjacency list: graph[i] = [list of connected indices]
+        adj = [[] for _ in range(n)]
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                r1 = rects[i]
+                r2 = rects[j]
+                
+                # Calculate gaps
+                def get_gap(start1, end1, start2, end2):
+                    # Gap is distance between closest edges. Overlap means gap is 0.
+                    gap = max(start1, start2) - min(end1, end2)
+                    return max(0, gap)
+
+                x_gap = get_gap(r1['min_x'], r1['max_x'], r2['min_x'], r2['max_x'])
+                y_gap = get_gap(r1['min_y'], r1['max_y'], r2['min_y'], r2['max_y'])
+                
+                # Check thresholds
+                if x_gap <= x_threshold and y_gap <= y_threshold:
+                    adj[i].append(j)
+                    adj[j].append(i)
+
+        # 3. Find Connected Components (BFS)
+        visited = [False] * n
+        grouped_items = []
+        
+        for i in range(n):
+            if not visited[i]:
+                # Start a new component
+                component_indices = []
+                stack = [i]
+                visited[i] = True
+                while stack:
+                    curr = stack.pop()
+                    component_indices.append(curr)
+                    for neighbor in adj[curr]:
+                        if not visited[neighbor]:
+                            visited[neighbor] = True
+                            stack.append(neighbor)
+                
+                # Collect items for this component
+                # Sort items within the group by Y primarily (Top-to-Bottom reading)
+                component_indices.sort(key=lambda idx: rects[idx]['min_y'])
+                
+                component = [items[idx] for idx in component_indices]
+                grouped_items.append(component)
+
+        # 4. Sort the groups themselves by their top-most coordinate
+        def get_group_y(group):
+            # Find global min_y of the group
+            min_y = float('inf')
+            for item in group:
+                box = item[0]
+                if hasattr(box, "tolist"):
+                    points = box.tolist()
+                else:
+                    points = box
+                current_min = min(p[1] for p in points)
+                if current_min < min_y:
+                    min_y = current_min
+            return min_y
+
+        grouped_items.sort(key=get_group_y)
+
+        return grouped_items
 
 # Example usage (commented out to avoid auto-execution impact on import):
 if __name__ == "__main__":
