@@ -4,29 +4,80 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 class Typesetter:
-    def __init__(self, font_path=None):
+    def __init__(self, font_name=None):
         """
-        Initialize the Typesetter with a specific font.
-        Tries to locate a Thai-compatible font if not provided.
-        """
-        if font_path and os.path.exists(font_path):
-            self.font_path = font_path
-        else:
-            # Common Windows fonts that support Thai
-            # Tahoma is widely available and supports Thai well.
-            # Leelawadee is another option.
-            possible_fonts = [
-                "C:/Windows/Fonts/tahoma.ttf",
-                "C:/Windows/Fonts/LeelawUI.ttf",
-                "C:/Windows/Fonts/arial.ttf",
-                "C:/Windows/Fonts/seguiemj.ttf" 
-            ]
-            self.font_path = "arial.ttf" # Default fallback
-            for f in possible_fonts:
-                if os.path.exists(f):
-                    self.font_path = f
-                    break
+        Initialize the Typesetter.
         
+        Args:
+            font_name (str, optional): 
+                Name of the font file to use (e.g., "myfont.ttf").
+                If None, tries to find any font in ./fonts/ folder.
+                If not found, falls back to system fonts.
+        """
+        # Define paths
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.project_root = os.path.dirname(base_dir)
+        self.fonts_dir = os.path.join(self.project_root, "fonts")
+        
+        self.font_path = None
+
+        # Try to set the requested font or a default one
+        self.set_font(font_name)
+
+    def get_available_fonts(self):
+        """
+        Returns a list of font filenames found in the ./fonts directory.
+        """
+        if not os.path.exists(self.fonts_dir):
+            return []
+        
+        fonts = [f for f in os.listdir(self.fonts_dir) if f.lower().endswith(('.ttf', '.otf'))]
+        return sorted(fonts)
+
+    def set_font(self, font_name):
+        """
+        Sets the current font to the specified font name found in ./fonts 
+        or a specific path.
+        """
+        # 1. Try: specific path provided and exists
+        # if font_name and os.path.exists(font_name):
+        #     self.font_path = font_name
+        #     return
+
+        # 2. Try: filename in ./fonts
+        if font_name:
+            candidate = os.path.join(self.fonts_dir, font_name)
+            if os.path.exists(candidate):
+                self.font_path = candidate
+                return
+            else:
+                print(f"Warning: Font '{font_name}' not found in {self.fonts_dir}")
+
+        # 3. Try: Any font in ./fonts (if font_name was None or not found)
+        available = self.get_available_fonts()
+        if available:
+            # Default to the first one found, or keep trying to find a good one?
+            # Let's pick the first one.
+            self.font_path = os.path.join(self.fonts_dir, available[0])
+            if font_name and font_name not in available:
+                 # If user asked for something specific but we fell back
+                 print(f"Falling back to default font: {available[0]}")
+            return
+
+        # 4. Fallback: System fonts (Windows)
+        possible_fonts = [
+            "C:/Windows/Fonts/tahoma.ttf",
+            "C:/Windows/Fonts/LeelawUI.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/seguiemj.ttf" 
+        ]
+        self.font_path = "arial.ttf" # Ultimate fallback
+        for f in possible_fonts:
+            if os.path.exists(f):
+                self.font_path = f
+                break
+        print(f"Warning: No fonts found in local directory. Using system font: {self.font_path}")
+
     def overlay_text(self, image_path, grouped_boxes, grouped_texts, output_path=None):
         """
         Overlays new text onto the image using the bounding boxes from PaddleOCR.
@@ -97,7 +148,6 @@ class Typesetter:
                     x = min_x + (box_width - w) / 2
                     
                     # Draw text with black fill (assuming light background or cleared text)
-                    # Use a small stroke for visibility if needed, but standard manga is just black on white/cleaned.
                     draw.text((x, current_y), line, font=font, fill="black")
                     current_y += h
         
@@ -158,9 +208,6 @@ class Typesetter:
         lines = []
         words = text.split(' ') # Simple space splitting
         
-        # Determine if we need to split by characters (e.g. for long Thai strings without spaces)
-        # If a single word is wider than max_width, we might force split.
-        
         current_line = []
         
         def get_width(t):
@@ -178,8 +225,6 @@ class Typesetter:
                     current_line = [word]
                 else:
                     # The word itself is too long, we must split it
-                    # This handles the case of "longstring" or Thai text without spaces
-                    # We'll split by character for this 'word'
                     chars = list(word)
                     sub_line = ""
                     for char in chars:
@@ -201,13 +246,13 @@ if __name__ == "__main__":
     # 1. Define paths
     base_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(base_dir) # assumes utils is one level deep
-    # Use an image that matches the coordinate scale (approx 1600x1200 or similar based on coords)
+    
+    # Use an image that matches the coordinate scale
     image_path = os.path.join(project_root, "output_scraper", "potential villain.jpg")
     
     # Check if image exists, if not use a dummy mock
     if not os.path.exists(image_path):
         print(f"Warning: Image not found at {image_path}. Please provide a valid image path to test.")
-        # Create a dummy image for testing - make it large enough for the boxes
         dummy_path = "test_image.jpg"
         dummy_img = Image.new('RGB', (1600, 1000), color='white')
         dummy_img.save(dummy_path)
@@ -231,18 +276,25 @@ if __name__ == "__main__":
         ['GIVE ME AMNANNAM PLEASE', 'PLEASE I NEED IT FOR THE SAKE', 'OF KAZDEL OR SOMETHING IDK']
     ]
 
-    # Verify matching lengths
-    assert len(grouped_boxes) == len(grouped_texts), "Boxes and texts groups must match in length"
-    for i, (b_group, t_group) in enumerate(zip(grouped_boxes, grouped_texts)):
-        assert len(b_group) == len(t_group), f"Group {i} mismatch: {len(b_group)} boxes vs {len(t_group)} texts"
-
     # 3. Initialize Typesetter
-    typesetter = Typesetter() # Will auto-detect font
+    typesetter = Typesetter()
     
-    print(f"Using font: {typesetter.font_path}")
+    # 3.1 List and Select Font
+    available_fonts = typesetter.get_available_fonts()
+    print(f"Available fonts in ./fonts: {available_fonts}")
+    
+    if available_fonts:
+        # Example: Select the first one
+        selected_font = available_fonts[0]
+        print(f"Selecting font: {selected_font}")
+        typesetter.set_font(selected_font)
+    else:
+        print("No local fonts found, using default.")
+
+    print(f"Using font path: {typesetter.font_path}")
     
     # 4. Run Overlay
-    output_path = "test_output.jpg"
+    output_path = "./output/test_output.jpg"
     result_img = typesetter.overlay_text(image_path, grouped_boxes, grouped_texts, output_path)
     
     if result_img:
