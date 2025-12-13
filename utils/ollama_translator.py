@@ -35,11 +35,13 @@ class OllamaTranslator:
         Returns:
             list: A list of model names available on the server.
         """
+        print("Listing models...")
         try:
             response = self.client.list()
+            models_list = response.get('models', [])
             # Extract model names from the response
-            if 'models' in response:
-                return [model['name'] for model in response['models']]
+            if models_list:
+                return [model.get('model') for model in models_list]
             return []
         except Exception as e:
             print(f"Error listing models: {e}")
@@ -98,7 +100,7 @@ if __name__ == "__main__":
         if models:
             # Select a model (e.g., the first one available or a specific one like 'llama3')
             # You can change 'llama3' to any model you have pulled, like 'gemma2' or 'mistral'
-            test_model = "llama3" if "llama3" in models else models[0]
+            test_model = input(f"Enter the model you want to use (default: {models[0]}): ").strip() or models[0]
             print(f"Testing with model: {test_model}")
             
             # List of texts to translate
