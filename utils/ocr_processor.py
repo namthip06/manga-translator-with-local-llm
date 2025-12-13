@@ -172,10 +172,28 @@ class OCRProcessor:
 if __name__ == "__main__":
     processor = OCRProcessor()
     grouped_boxes, grouped_texts = processor.perform_ocr("./output_scraper/potential villain.jpg")
-    print("--- Grouped Texts ---")
-    for i, text_group in enumerate(grouped_texts):
-        print(f"Group {i}: {text_group}")
+    
+    # print("grouped_boxes: " ,grouped_boxes)
+    # print("grouped_boxes type: " ,type(grouped_boxes))
+    # print("grouped_texts: " ,grouped_texts)
+    # print("grouped_texts type: " ,type(grouped_texts))
+    # # list
+
+    # print("grouped_boxes len: " ,len(grouped_boxes))
+    # print("grouped_texts len: " ,len(grouped_texts))
+    # grouped_boxes == grouped_texts
         
-    # print("--- Grouped Boxes ---")
-    # for i, box_group in enumerate(grouped_boxes):
-    #     print(f"Group {i}: {box_group}")    
+    print("--- Grouped Boxes ---")
+    try:
+        print([
+            [box.tolist() for box in group]
+            for group in grouped_boxes
+        ])
+    except:
+        print(grouped_boxes)
+
+    print("--- Grouped Texts ---")
+    try:
+        print(grouped_texts.tolist())
+    except:
+        print(grouped_texts)
