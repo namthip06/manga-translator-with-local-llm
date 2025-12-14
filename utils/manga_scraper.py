@@ -19,11 +19,14 @@ class MangaScraper:
             return ""
         return "." + ".".join(class_string.strip().split())
 
-    def __init__(self, headless=False, driver_type="chrome_driver_manager"):
+    def __init__(self, headless=False, driver_type="chrome_driver_manager", log_callback=None):
         """
         Initializes the Selenium WebDriver.
         driver_type: "chrome_driver_manager" (default) or "undetected_chromedriver"
+        log_callback: Optional callable for logging (e.g., st.write). default is print.
         """
+        self.log_callback = log_callback if log_callback else print
+
         if driver_type == "undetected_chromedriver":
             options = uc.ChromeOptions()
             if headless:
@@ -31,6 +34,11 @@ class MangaScraper:
             self.driver = uc.Chrome(options=options)
         else:
             self.driver = self._setup_chrome_driver_manager(headless)
+
+    def log(self, message):
+        """Logs message using the registered callback."""
+        if self.log_callback:
+            self.log_callback(message)
 
     def _setup_chrome_driver_manager(self, headless):
         """Sets up the driver with ChromeDriverManager and prevents pop-ups."""
@@ -58,7 +66,7 @@ class MangaScraper:
         """
         Navigates to the specific URL using the driver.
         """
-        print(f"Navigating to {url}...")
+        self.log(f"Navigating to {url}...")
         self.driver.get(url)
 
     def scroll_to_bottom(self, scroll_pause_time=5, before_scroll_wait_time=5, scroll_step=10000):
@@ -68,13 +76,13 @@ class MangaScraper:
         scroll_step: Amount of pixels to scroll in each step (default 500).
         """
         if before_scroll_wait_time > 0:
-            print(f"Waiting {before_scroll_wait_time} seconds before scrolling...")
+            self.log(f"Waiting {before_scroll_wait_time} seconds before scrolling...")
             time.sleep(before_scroll_wait_time)
             
-        print("Starting to scroll...")
+        self.log("Starting to scroll...")
         # Get scroll height
         last_height = self.driver.execute_script("return document.body.scrollHeight")
-        print(f"Initial scroll height: {last_height}")
+        self.log(f"Initial scroll height: {last_height}")
 
         while True:
             # Scroll down by step
@@ -92,9 +100,9 @@ class MangaScraper:
             # (current_scroll_y + inner_height) >= new_height (with small buffer)
             if (current_scroll_y + inner_height) >= (new_height - 10):
                 if new_height == last_height:
-                    print("Reached bottom of the page.")
+                    self.log("Reached bottom of the page.")
                     break
-                print(f"Page expanded. New scroll height: {new_height}")
+                self.log(f"Page expanded. New scroll height: {new_height}")
                 last_height = new_height
             else:
                 # Still scrolling down, height might have changed or not, 
@@ -107,7 +115,7 @@ class MangaScraper:
         Extracts image URLs from the page based on the given CSS selector.
         Handles lazy loading by checking 'src' and 'data-src'.
         """
-        print(f"Extracting image URLs using selector: {css_selector}")
+        self.log(f"Extracting image URLs using selector: {css_selector}")
         image_urls = []
         try:
             images = self.driver.find_elements(By.CSS_SELECTOR, css_selector)
@@ -123,9 +131,9 @@ class MangaScraper:
                     if src not in image_urls: # unique
                         image_urls.append(src)
         except Exception as e:
-            print(f"Error extracting image URLs: {e}")
+            self.log(f"Error extracting image URLs: {e}")
             
-        print(f"Found {len(image_urls)} unique images.")
+        self.log(f"Found {len(image_urls)} unique images.")
         return image_urls
 
     def click_button(self, selector_type, selector_value):
@@ -134,14 +142,14 @@ class MangaScraper:
         selector_type: e.g., By.CSS_SELECTOR, By.XPATH
         selector_value: The string value for the selector.
         """
-        print(f"Attempting to click button: {selector_type} = {selector_value}")
+        self.log(f"Attempting to click button: {selector_type} = {selector_value}")
         try:
             button = self.driver.find_element(selector_type, selector_value)
             button.click()
-            print("Button clicked successfully.")
+            self.log("Button clicked successfully.")
             return True
         except Exception as e:
-            print(f"Failed to click button: {e}")
+            self.log(f"Failed to click button: {e}")
             return False
 
     def download_images(self, image_urls):
@@ -164,9 +172,9 @@ class MangaScraper:
 
         if not os.path.exists(destination_folder):
             os.makedirs(destination_folder)
-            print(f"Created directory: {destination_folder}")
+            self.log(f"Created directory: {destination_folder}")
             
-        print(f"Downloading {len(image_urls)} images to {destination_folder}...")
+        self.log(f"Downloading {len(image_urls)} images to {destination_folder}...")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -204,31 +212,32 @@ class MangaScraper:
                     elif response.status_code == 521:
                         if retries_521 < max_retries_521:
                             retries_521 += 1
-                            print(f"Status 521 (Web Server Down) for {url}. Retrying in 10 seconds... ({retries_521}/{max_retries_521})")
+                            self.log(f"Status 521 (Web Server Down) for {url}. Retrying in 10 seconds... ({retries_521}/{max_retries_521})")
                             time.sleep(10)
                         else:
-                            print(f"Failed to download {url}: Status 521 after {max_retries_521} attempts.")
+                            self.log(f"Failed to download {url}: Status 521 after {max_retries_521} attempts.")
                             break
                             
                     elif response.status_code in [522, 503]:
                         if retries_backoff < max_retries_backoff:
                             wait_time = 5 * (2 ** retries_backoff) # 5, 10, 20
                             retries_backoff += 1
-                            print(f"Status {response.status_code} for {url}. Retrying in {wait_time} seconds... ({retries_backoff}/{max_retries_backoff})")
+                            self.log(f"Status {response.status_code} for {url}. Retrying in {wait_time} seconds... ({retries_backoff}/{max_retries_backoff})")
                             time.sleep(wait_time)
                         else:
-                            print(f"Failed to download {url}: Status {response.status_code} after {max_retries_backoff} attempts.")
+                            self.log(f"Failed to download {url}: Status {response.status_code} after {max_retries_backoff} attempts.")
                             break
                     else:
-                        print(f"Failed to download {url}: Status code {response.status_code}")
+                        self.log(f"Failed to download {url}: Status code {response.status_code}")
                         break
                         
                 except Exception as e:
-                    print(f"Error downloading {url}: {e}")
+                    self.log(f"Error downloading {url}: {e}")
                     break
                     
-        print("Download complete.")
-
+        self.log("Download complete.")
+        return destination_folder
+        
     def close_driver(self):
         """
         Closes the WebDriver.

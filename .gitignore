@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Streamlit cache
+
+# output images
+output/
+output_scraper/
+output_text_remover/
