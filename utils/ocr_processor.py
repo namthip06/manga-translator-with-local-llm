@@ -1,4 +1,6 @@
 import logging
+import os
+from PIL import Image
 from paddleocr import PaddleOCR
 
 class OCRProcessor:
@@ -30,6 +32,23 @@ class OCRProcessor:
             list: A list of extracted text strings.
         """
         self.logger.info(f"Processing image: {image_path}")
+        
+        # Check and convert image if necessary
+        file_ext = os.path.splitext(image_path)[1].lower()
+        supported_exts = ['.jpg', '.jpeg', '.png', '.bmp', '.pdf']
+        
+        if file_ext not in supported_exts:
+            self.logger.info(f"Unsupported file format {file_ext}. Converting to PNG...")
+            try:
+                img = Image.open(image_path).convert("RGB")
+                new_image_path = os.path.splitext(image_path)[0] + ".png"
+                img.save(new_image_path, "PNG")
+                self.logger.info(f"Saved converted image to: {new_image_path}")
+                image_path = new_image_path
+            except Exception as e:
+                self.logger.error(f"Failed to convert image {image_path}: {e}")
+                return [], []
+
         result = self.ocr.predict(image_path)
         
         if not result or result[0] is None:
@@ -171,29 +190,43 @@ class OCRProcessor:
 # Example usage (commented out to avoid auto-execution impact on import):
 if __name__ == "__main__":
     processor = OCRProcessor()
-    grouped_boxes, grouped_texts = processor.perform_ocr("./output_scraper/potential villain.jpg")
     
-    # print("grouped_boxes: " ,grouped_boxes)
-    # print("grouped_boxes type: " ,type(grouped_boxes))
-    # print("grouped_texts: " ,grouped_texts)
-    # print("grouped_texts type: " ,type(grouped_texts))
-    # # list
-
-    # print("grouped_boxes len: " ,len(grouped_boxes))
-    # print("grouped_texts len: " ,len(grouped_texts))
-    # grouped_boxes == grouped_texts
+    # Specify the folder path containing images
+    folder_path = "./output_scraper/Master-Peace [Official] - Chapter 15"  # You can change this to your target folder
+    
+    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+        print(f"Processing images in folder: {folder_path}")
         
-    print("--- Grouped Boxes ---")
-    try:
-        print([
-            [box.tolist() for box in group]
-            for group in grouped_boxes
-        ])
-    except:
-        print(grouped_boxes)
+        valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+        
+        for filename in os.listdir(folder_path):
+            if filename.lower().endswith(valid_extensions):
+                image_path = os.path.join(folder_path, filename)
+                print(f"\n--- Processing: {filename} ---")
+                
+                try:
+                    grouped_boxes, grouped_texts = processor.perform_ocr(image_path)
+                    
+                    print("--- Grouped Texts ---")
+                    
+                    for i, group in enumerate(grouped_texts):
+                        # group is a list of tuples (text, confidence) usually, or just text?
+                        # Based on line 59: t_group = [item[1] for item in group]
+                        # And line 47 combined_data = list(zip(raw_boxes, raw_texts))
+                        # paddleocr result[0]['rec_texts'] is usually just a list of (text, confidence) tuples.
+                        # So item[1] in line 59 would be the (text, confidence) tuple if raw_texts elements are (text, conf).
+                        # Wait, let's look at `paddleocr` docs or common usage. 
+                        # Usually `ocr.predict` (or just `ocr.ocr`) returns `[[[box], (text, conf)], ...]`.
+                        # But here `result = self.ocr.predict(image_path)`.
+                        # The code at line 43 says `raw_texts = result[0]['rec_texts']`.
+                        # This implies `predict` returns a dict-like structure or similar.
+                        # Assuming the existing code works, `grouped_texts` contains lists of whatever `raw_texts` contains.
+                        # If `raw_texts` contains strings, then `group` contains strings.
+                        # If `raw_texts` contains (text, conf), then `group` contains (text, conf).
+                        # Let's just print the group content to be safe.
+                        print(f"Group {i+1}: {group}")
 
-    print("--- Grouped Texts ---")
-    try:
-        print(grouped_texts.tolist())
-    except:
-        print(grouped_texts)
+                except Exception as e:
+                    print(f"Error processing {filename}: {e}")
+    else:
+        print(f"Folder not found: {folder_path}")

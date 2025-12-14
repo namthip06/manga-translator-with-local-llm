@@ -54,21 +54,18 @@ class MangaScraper:
         service = Service(ChromeDriverManager().install())
         return webdriver.Chrome(service=service, options=options)
 
-    def navigate_to_url(self, url, wait_time=5):
+    def navigate_to_url(self, url):
         """
         Navigates to the specific URL using the driver.
-        wait_time: Time to wait after navigation (seconds) to allow full page load.
         """
         print(f"Navigating to {url}...")
         self.driver.get(url)
-        if wait_time > 0:
-            print(f"Waiting {wait_time} seconds for page to load...")
-            time.sleep(wait_time)
 
-    def scroll_to_bottom(self, scroll_pause_time=2, before_scroll_wait_time=5):
+    def scroll_to_bottom(self, scroll_pause_time=5, before_scroll_wait_time=5, scroll_step=10000):
         """
         Repeatedly scrolls down the page until no new content is loaded.
         before_scroll_wait_time: Time to wait before starting to scroll (seconds).
+        scroll_step: Amount of pixels to scroll in each step (default 500).
         """
         if before_scroll_wait_time > 0:
             print(f"Waiting {before_scroll_wait_time} seconds before scrolling...")
@@ -77,20 +74,33 @@ class MangaScraper:
         print("Starting to scroll...")
         # Get scroll height
         last_height = self.driver.execute_script("return document.body.scrollHeight")
+        print(f"Initial scroll height: {last_height}")
 
         while True:
-            # Scroll down to bottom
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            # Scroll down by step
+            self.driver.execute_script(f"window.scrollBy(0, {scroll_step});")
 
             # Wait to load page
             time.sleep(scroll_pause_time)
 
-            # Calculate new scroll height and compare with last scroll height
+            # Calculate new scroll height and check position
             new_height = self.driver.execute_script("return document.body.scrollHeight")
-            if new_height == last_height:
-                print("Reached bottom of the page.")
-                break
-            last_height = new_height
+            current_scroll_y = self.driver.execute_script("return window.scrollY")
+            inner_height = self.driver.execute_script("return window.innerHeight")
+            
+            # Check if we have reached the bottom of the page
+            # (current_scroll_y + inner_height) >= new_height (with small buffer)
+            if (current_scroll_y + inner_height) >= (new_height - 10):
+                if new_height == last_height:
+                    print("Reached bottom of the page.")
+                    break
+                print(f"Page expanded. New scroll height: {new_height}")
+                last_height = new_height
+            else:
+                # Still scrolling down, height might have changed or not, 
+                # but we haven't hit the bottom bound yet.
+                # Update last_height in case it changed while we were scrolling
+                last_height = new_height
 
     def get_image_urls(self, css_selector="img"):
         """
@@ -137,6 +147,9 @@ class MangaScraper:
     def download_images(self, image_urls):
         """
         Downloads images from the list of URLs to output_scraper/{driver.title}.
+        Handles retry logic for specific error codes:
+        - 521: Retry 2-3 times, wait 30s.
+        - 522/503: Exponential backoff (5s, 10s, 20s).
         """
         # Base folder
         base_folder = "output_scraper"
@@ -160,25 +173,60 @@ class MangaScraper:
         }
         
         for i, url in enumerate(image_urls):
-            try:
-                response = requests.get(url, headers=headers, stream=True)
-                if response.status_code == 200:
-                    # Basic extension guessing
-                    ext = 'jpg'
-                    if 'png' in url.lower(): ext = 'png'
-                    elif 'jpeg' in url.lower(): ext = 'jpeg'
-                    elif 'webp' in url.lower(): ext = 'webp'
+            # Basic extension guessing
+            ext = 'jpg'
+            if 'png' in url.lower(): ext = 'png'
+            elif 'jpeg' in url.lower(): ext = 'jpeg'
+            elif 'webp' in url.lower(): ext = 'webp'
+            
+            filename = f"image_{i+1:03d}.{ext}"
+            filepath = os.path.join(destination_folder, filename)
+            
+            # Retry counters
+            retries_521 = 0
+            max_retries_521 = 3
+            
+            retries_backoff = 0
+            max_retries_backoff = 3
+            
+            success = False
+            
+            while not success:
+                try:
+                    response = requests.get(url, headers=headers, stream=True)
                     
-                    filename = f"image_{i+1:03d}.{ext}"
-                    filepath = os.path.join(destination_folder, filename)
+                    if response.status_code == 200:
+                        with open(filepath, 'wb') as f:
+                            for chunk in response.iter_content(1024):
+                                f.write(chunk)
+                        success = True
+                        
+                    elif response.status_code == 521:
+                        if retries_521 < max_retries_521:
+                            retries_521 += 1
+                            print(f"Status 521 (Web Server Down) for {url}. Retrying in 10 seconds... ({retries_521}/{max_retries_521})")
+                            time.sleep(10)
+                        else:
+                            print(f"Failed to download {url}: Status 521 after {max_retries_521} attempts.")
+                            break
+                            
+                    elif response.status_code in [522, 503]:
+                        if retries_backoff < max_retries_backoff:
+                            wait_time = 5 * (2 ** retries_backoff) # 5, 10, 20
+                            retries_backoff += 1
+                            print(f"Status {response.status_code} for {url}. Retrying in {wait_time} seconds... ({retries_backoff}/{max_retries_backoff})")
+                            time.sleep(wait_time)
+                        else:
+                            print(f"Failed to download {url}: Status {response.status_code} after {max_retries_backoff} attempts.")
+                            break
+                    else:
+                        print(f"Failed to download {url}: Status code {response.status_code}")
+                        break
+                        
+                except Exception as e:
+                    print(f"Error downloading {url}: {e}")
+                    break
                     
-                    with open(filepath, 'wb') as f:
-                        for chunk in response.iter_content(1024):
-                            f.write(chunk)
-                else:
-                    print(f"Failed to download {url}: Status code {response.status_code}")
-            except Exception as e:
-                print(f"Error downloading {url}: {e}")
         print("Download complete.")
 
     def close_driver(self):
@@ -195,10 +243,11 @@ if __name__ == "__main__":
     
     try:
         # Navigate to a URL
-        scraper.navigate_to_url("https://kurotoon.com/read/mras-farm-chapter-20") # Replace with a manga URL
+        scraper.navigate_to_url("https://kurotoon.com/read/mras-farm-chapter-20")
+        # scraper.navigate_to_url("https://battwo.com/chapter/3995430")
         
         # Scroll to load all images
-        scraper.scroll_to_bottom(before_scroll_wait_time=10)
+        scraper.scroll_to_bottom(scroll_step=5000)
         
         # Extract image URLs
         # Use helper to format the complex class string
