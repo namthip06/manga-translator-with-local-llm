@@ -192,7 +192,7 @@ if __name__ == "__main__":
     processor = OCRProcessor()
     
     # Specify the folder path containing images
-    folder_path = "./output_scraper/Master-Peace [Official] - Chapter 15"  # You can change this to your target folder
+    folder_path = "./output_scraper\Kagurabachi, Chapter 105 - Kagurabachi Manga Online"  # You can change this to your target folder
     
     if os.path.exists(folder_path) and os.path.isdir(folder_path):
         print(f"Processing images in folder: {folder_path}")

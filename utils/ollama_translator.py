@@ -2,19 +2,28 @@ import ollama
 from ollama import Client
 
 class OllamaTranslator:
-    def __init__(self, host="http://localhost:11434", default_model="llama3"):
+    def __init__(self, host="http://localhost:11434", default_model="llama3", log_callback=None):
         """
         Initialize the OllamaTranslator.
         
         Args:
             host (str): The URL of the Ollama server.
             default_model (str): The default model to use if none is specified.
+            log_callback (callable): A function to log messages.
         """
         self.host = host
         self.default_model = default_model
         self.client = Client(host=host)
+        self.log_callback = log_callback
 
-    def connect(self):
+    def log(self, message):
+        """Log a message using the callback or print."""
+        if self.log_callback:
+            self.log_callback(message)
+        else:
+            print(message)
+
+    def connect(self) -> bool:
         """
         Checks connection to the Ollama server by attempting to list models.
         
@@ -25,17 +34,17 @@ class OllamaTranslator:
             self.client.list()
             return True
         except Exception as e:
-            print(f"Error connecting to Ollama server at {self.host}: {e}")
+            self.log(f"Error connecting to Ollama server at {self.host}: {e}")
             return False
 
-    def list_models(self):
+    def list_models(self) -> list[str]:
         """
         Lists available models from the Ollama server.
         
         Returns:
             list: A list of model names available on the server.
         """
-        print("Listing models...")
+        self.log("Listing models...")
         try:
             response = self.client.list()
             models_list = response.get('models', [])
@@ -44,45 +53,49 @@ class OllamaTranslator:
                 return [model.get('model') for model in models_list]
             return []
         except Exception as e:
-            print(f"Error listing models: {e}")
+            self.log(f"Error listing models: {e}")
             return []
 
-    def translate_text(self, text, model, prompt):
+    def translate_text(self, text, model, prompt) -> str | None:
         """
         Translates text using the specified model and prompt.
         
         Args:
-            text (str): The text to translate.
+            text (str): The text to translate (comma separated sentences).
             model (str): The name of the model to use.
-            prompt (str): The prompt template containing '{text}' placeholder.
+            prompt (str): The start prompt template.
             
         Returns:
-            str: The translated text, or None if an error occurs.
+            str: The translated text (JSON string), or None if an error occurs.
         """
         if not model:
             model = self.default_model
 
         try:
-            # Format the prompt with the text
-            formatted_prompt = prompt.format(text=text)
+            # Combine prompt and text as requested
+            full_prompt = f"{prompt}\n\n{text}"
             
             # Send request to Ollama
-            response = self.client.chat(model=model, messages=[
-                {
-                    'role': 'user',
-                    'content': formatted_prompt,
-                },
-            ])
+            response = self.client.chat(
+                model=model, 
+                messages=[
+                    {
+                        'role': 'user',
+                        'content': full_prompt,
+                    },
+                ],
+                format='json'
+            )
             
             # Extract and return the content
             if 'message' in response and 'content' in response['message']:
                 return response['message']['content']
             else:
-                print("Unexpected response format from Ollama.")
+                self.log("Unexpected response format from Ollama.")
                 return None
                 
         except Exception as e:
-            print(f"Error during translation: {e}")
+            self.log(f"Error during translation: {e}")
             return None
 
 if __name__ == "__main__":
