@@ -1,5 +1,4 @@
 import os
-import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -78,7 +77,39 @@ class Typesetter:
                 break
         print(f"Warning: No fonts found in local directory. Using system font: {self.font_path}")
 
-    def overlay_text(self, image_path, grouped_boxes, grouped_texts, output_path=None):
+    def calculate_consolidated_box(self, boxes):
+        """
+        Calculates the bounding box (min_x, min_y, max_x, max_y) for a group of boxes.
+        It treats all the boxes in the list as a single object to find the outermost 4 corners.
+
+        Args:
+            boxes (list): A list of boxes, where each box is a list of points (e.g. [[x1,y1], [x2,y2], ...]).
+
+        Returns:
+            tuple: (min_x, min_y, max_x, max_y) of the consolidated area.
+        """
+        if not boxes:
+            return 0, 0, 0, 0
+
+        # Flatten all points from all boxes into a single list
+        all_points = []
+        for box in boxes:
+            all_points.extend(box)
+
+        if not all_points:
+            return 0, 0, 0, 0
+
+        # Convert to numpy array for efficient min/max calculation
+        pts = np.array(all_points, dtype=np.float32)
+
+        min_x = np.min(pts[:, 0])
+        max_x = np.max(pts[:, 0])
+        min_y = np.min(pts[:, 1])
+        max_y = np.max(pts[:, 1])
+
+        return int(min_x), int(min_y), int(max_x), int(max_y)
+
+    def overlay_text(self, image_path: str, grouped_boxes: list, grouped_texts: list, output_path: str = None, font_name: str = None, font_size: int = None, padding: int = 0):
         """
         Overlays new text onto the image using the bounding boxes from PaddleOCR.
         
@@ -88,10 +119,16 @@ class Typesetter:
                                   Each box is [[x1, y1], [x2, y2], [x3, y3], [x4, y4]].
             grouped_texts (list): List of groups of text strings to write.
             output_path (str, optional): Path to save the output image.
+            font_name (str, optional): Name of the font to use.
+            font_size (int, optional): Fixed font size to use. If None, calculates best fit.
+            padding (int, optional): Padding to reduce the text box area from the detected box.
             
         Returns:
             Image: The PIL Image object with text drawn.
         """
+        if font_name:
+            self.set_font(font_name)
+
         if not os.path.exists(image_path):
             raise FileNotFoundError(f"Image not found: {image_path}")
 
@@ -104,52 +141,66 @@ class Typesetter:
         draw = ImageDraw.Draw(image)
 
         # Loop through groups
-        for boxes, texts in zip(grouped_boxes, grouped_texts):
-            # Loop through individual items in the group
-            for box, text in zip(boxes, texts):
-                if not text:
-                    continue
-                
-                # Convert box to numpy for easier min/max calc
-                # box structure: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
-                pts = np.array(box, dtype=np.float32)
-                
-                min_x = np.min(pts[:, 0])
-                max_x = np.max(pts[:, 0])
-                min_y = np.min(pts[:, 1])
-                max_y = np.max(pts[:, 1])
-                
-                box_width = max_x - min_x
-                box_height = max_y - min_y
-                
-                if box_width <= 0 or box_height <= 0:
-                    continue
+        for boxes, text in zip(grouped_boxes, grouped_texts):
+             if not boxes or not text:
+                 continue
 
-                # Calculate best font size and wrapped lines
-                font, lines = self._fit_text(text, box_width, box_height, draw)
-                
-                # Calculate total text block height
-                total_text_height = 0
-                line_heights = []
-                for line in lines:
-                    bbox = draw.textbbox((0, 0), line, font=font)
-                    h = bbox[3] - bbox[1]
-                    line_heights.append(h)
-                    total_text_height += h
-                
-                # Center vertically
-                current_y = min_y + (box_height - total_text_height) / 2
-                
-                # Draw each line
-                for line, h in zip(lines, line_heights):
-                    bbox = draw.textbbox((0, 0), line, font=font)
-                    w = bbox[2] - bbox[0]
-                    # Center horizontally
-                    x = min_x + (box_width - w) / 2
-                    
-                    # Draw text with black fill (assuming light background or cleared text)
-                    draw.text((x, current_y), line, font=font, fill="black")
-                    current_y += h
+             # Consolidate the box
+             min_x, min_y, max_x, max_y = self.calculate_consolidated_box(boxes)
+             
+             # Apply padding
+             min_x += padding
+             min_y += padding
+             max_x -= padding
+             max_y -= padding
+             
+             box_width = max_x - min_x
+             box_height = max_y - min_y
+             
+             if box_width <= 0 or box_height <= 0:
+                 continue
+
+             # Text is already a string in 1D list
+             full_text = text
+             if not full_text.strip():
+                 continue
+
+             if font_size:
+                 # Use fixed font size
+                 try:
+                     font = ImageFont.truetype(self.font_path, font_size)
+                 except:
+                     font = ImageFont.load_default() # Fallback, though load_default doesn't take size usually (it's bitmap)
+                     # For TrueType fallback:
+                     # font = ImageFont.truetype("arial.ttf", font_size) 
+                     
+                 lines = self._wrap_text(full_text, font, box_width, draw)
+             else:
+                 # Calculate best font size and wrapped lines
+                 font, lines = self._fit_text(full_text, box_width, box_height, draw)
+                 
+             # Calculate total text block height
+             total_text_height = 0
+             line_heights = []
+             for line in lines:
+                 bbox = draw.textbbox((0, 0), line, font=font)
+                 h = bbox[3] - bbox[1]
+                 line_heights.append(h)
+                 total_text_height += h
+                 
+             # Center vertically
+             current_y = min_y + (box_height - total_text_height) / 2
+                 
+             # Draw each line
+             for line, h in zip(lines, line_heights):
+                 bbox = draw.textbbox((0, 0), line, font=font)
+                 w = bbox[2] - bbox[0]
+                 # Center horizontally
+                 x = min_x + (box_width - w) / 2
+                     
+                 # Draw text with black fill (assuming light background or cleared text)
+                 draw.text((x, current_y), line, font=font, fill="black")
+                 current_y += h
         
         image = image.convert("RGB")
         if output_path:
@@ -239,65 +290,3 @@ class Typesetter:
             lines.append(' '.join(current_line))
             
         return lines
-
-if __name__ == "__main__":
-    # Test Setup
-    
-    # 1. Define paths
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(base_dir) # assumes utils is one level deep
-    
-    # Use an image that matches the coordinate scale
-    image_path = os.path.join(project_root, "output_scraper", "potential villain.jpg")
-    
-    # Check if image exists, if not use a dummy mock
-    if not os.path.exists(image_path):
-        print(f"Warning: Image not found at {image_path}. Please provide a valid image path to test.")
-        dummy_path = "test_image.jpg"
-        dummy_img = Image.new('RGB', (1600, 1000), color='white')
-        dummy_img.save(dummy_path)
-        image_path = dummy_path
-        print(f"Created dummy image at {dummy_path}")
-
-    # 2. Mock Data (User provided structure)
-    grouped_boxes = [
-        [[[510, 94], [1154, 94], [1154, 139], [510, 139]]], 
-        [[[24, 155], [184, 153], [184, 192], [24, 194]], [[27, 204], [485, 204], [485, 238], [27, 238]], [[28, 253], [524, 253], [524, 284], [28, 284]]], 
-        [[[1150, 168], [1481, 168], [1481, 192], [1150, 192]], [[1150, 203], [1543, 203], [1543, 227], [1150, 227]], [[1150, 237], [1539, 237], [1539, 261], [1150, 261]], [[1151, 272], [1565, 272], [1565, 295], [1151, 295]], [[1149, 304], [1362, 304], [1362, 331], [1149, 331]], [[1150, 341], [1433, 341], [1433, 365], [1150, 365]]], 
-        [[[1146, 606], [1581, 606], [1581, 637], [1146, 637]], [[1146, 649], [1533, 649], [1533, 679], [1146, 679]], [[1148, 694], [1584, 694], [1584, 721], [1148, 721]], [[1148, 738], [1338, 738], [1338, 766], [1148, 766]], [[1148, 781], [1546, 781], [1546, 813], [1148, 813]], [[1146, 824], [1373, 826], [1373, 861], [1146, 859]]], 
-        [[[30, 683], [519, 683], [519, 713], [30, 713]], [[30, 728], [579, 728], [579, 755], [30, 755]], [[29, 770], [557, 770], [557, 801], [29, 801]]]
-    ]
-    
-    grouped_texts = [
-        ['MEET POTENTIAL VILLAIN'], 
-        ['0 FEATS', '0 STRATEGIC VICTORIES', '38 AURAFARMING SCENES'], 
-        ['THERESA WE NEED TO', 'HAVE ANOTHER CIVIL WAR', 'IM BEGGING THE MILITARY', 'INDUSTRIAL COMPLEX PAYS', 'BIG GLORY TO', 'LOCKHEED MARTIN'], 
-        ['IS IMMEDIATELY CLAPPED', 'THE MICROSECOND HE', 'MEETS ANYONE SLIGHTLY', 'STRONGER', '(GIVE ME STREET TIERS', 'NOOO NOOO)'], 
-        ['GIVE ME AMNANNAM PLEASE', 'PLEASE I NEED IT FOR THE SAKE', 'OF KAZDEL OR SOMETHING IDK']
-    ]
-
-    # 3. Initialize Typesetter
-    typesetter = Typesetter()
-    
-    # 3.1 List and Select Font
-    available_fonts = typesetter.get_available_fonts()
-    print(f"Available fonts in ./fonts: {available_fonts}")
-    
-    if available_fonts:
-        # Example: Select the first one
-        selected_font = available_fonts[0]
-        print(f"Selecting font: {selected_font}")
-        typesetter.set_font(selected_font)
-    else:
-        print("No local fonts found, using default.")
-
-    print(f"Using font path: {typesetter.font_path}")
-    
-    # 4. Run Overlay
-    output_path = "./output/test_output.jpg"
-    result_img = typesetter.overlay_text(image_path, grouped_boxes, grouped_texts, output_path)
-    
-    if result_img:
-        print(f"Success! Image saved to {output_path}")
-    else:
-        print("Failed to generate image.")

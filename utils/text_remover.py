@@ -1,8 +1,6 @@
 import cv2
-import os
 import numpy as np
 import logging
-from ocr_processor import OCRProcessor
 
 class TextRemover:
     def __init__(self, inpaint_radius=3, method=cv2.INPAINT_TELEA, log_level=logging.INFO):
@@ -67,30 +65,3 @@ class TextRemover:
         except Exception as e:
             self.logger.error(f"Error during inpainting: {e}")
             return None
-
-if __name__ == "__main__":
-    # Setup paths
-    image_path = "./output_scraper/potential villain.jpg"
-    output_path = "./output_text_remover/test_text_remover_result.jpg"
-    
-    if not os.path.exists(image_path):
-        print(f"Error: Test image not found at {image_path}")
-        exit()
-
-    # 1. Run OCR
-    print("Running OCR...")
-    processor = OCRProcessor(use_angle_cls=True, lang='en') # Adjust lang if needed
-    grouped_boxes, grouped_texts = processor.perform_ocr(image_path)
-    print(f"Found {len(grouped_boxes)} groups of text.")
-
-    # 2. Run Inpainting
-    print("Running TextRemover...")
-    remover = TextRemover()
-    result_image = remover.remove_text(image_path, grouped_boxes)
-
-    # 3. Save result
-    if result_image is not None:
-        cv2.imwrite(output_path, result_image)
-        print(f"Inpainting successful! Result saved to {output_path}")
-    else:
-        print("Inpainting failed.")

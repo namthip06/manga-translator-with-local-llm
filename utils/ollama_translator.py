@@ -56,7 +56,7 @@ class OllamaTranslator:
             self.log(f"Error listing models: {e}")
             return []
 
-    def translate_text(self, text, model, prompt) -> str | None:
+    def translate_text(self, text, model, prompt, json_format=False) -> str | None:
         """
         Translates text using the specified model and prompt.
         
@@ -64,9 +64,10 @@ class OllamaTranslator:
             text (str): The text to translate (comma separated sentences).
             model (str): The name of the model to use.
             prompt (str): The start prompt template.
+            json_format (bool): Whether to enforce JSON output format.
             
         Returns:
-            str: The translated text (JSON string), or None if an error occurs.
+            str: The translated text, or None if an error occurs.
         """
         if not model:
             model = self.default_model
@@ -75,17 +76,17 @@ class OllamaTranslator:
             # Combine prompt and text as requested
             full_prompt = f"{prompt}\n\n{text}"
             
+            # Prepare arguments
+            chat_args = {
+                'model': model,
+                'messages': [{'role': 'user', 'content': full_prompt}]
+            }
+            
+            if json_format:
+                chat_args['format'] = 'json'
+            
             # Send request to Ollama
-            response = self.client.chat(
-                model=model, 
-                messages=[
-                    {
-                        'role': 'user',
-                        'content': full_prompt,
-                    },
-                ],
-                format='json'
-            )
+            response = self.client.chat(**chat_args)
             
             # Extract and return the content
             if 'message' in response and 'content' in response['message']:
@@ -125,7 +126,7 @@ if __name__ == "__main__":
             ]
             
             # Prompt for translation (Japanese to Thai as per project context)
-            test_prompt = "You are a professional translator. Translate the following Japanese text to Thai, ensuring natural phrasing: '{text}'"
+            test_prompt = "You are a professional translator. Translate the following Japanese text to Thai, ensuring natural phrasing: "
             
             print("\n--- Translation Test Results ---")
             for msg in test_messages:

@@ -21,12 +21,14 @@ class OCRProcessor:
         logging.basicConfig(level=log_level)
         self.logger = logging.getLogger(__name__)
 
-    def perform_ocr(self, image_path):
+    def perform_ocr(self, image_path, x_threshold=20, y_threshold=20):
         """
         Perform OCR on the given image and return the extracted text sorted by reading order.
         
         Args:
             image_path (str): Path to the image file.
+            x_threshold (int): Maximum horizontal gap for text grouping.
+            y_threshold (int): Maximum vertical gap for text grouping.
             
         Returns:
             list: A list of extracted text strings.
@@ -66,7 +68,7 @@ class OCRProcessor:
         combined_data = list(zip(raw_boxes, raw_texts))
         
         # Returns List of groups (List[List[(Box, Text)]])
-        sorted_groups = self._sort_boxes(combined_data)
+        sorted_groups = self._sort_boxes(combined_data, x_threshold=x_threshold, y_threshold=y_threshold)
         
         # Separate into two lists preserving group structure
         grouped_boxes = []
@@ -186,47 +188,3 @@ class OCRProcessor:
         grouped_items.sort(key=get_group_y)
 
         return grouped_items
-
-# Example usage (commented out to avoid auto-execution impact on import):
-if __name__ == "__main__":
-    processor = OCRProcessor()
-    
-    # Specify the folder path containing images
-    folder_path = "./output_scraper\Kagurabachi, Chapter 105 - Kagurabachi Manga Online"  # You can change this to your target folder
-    
-    if os.path.exists(folder_path) and os.path.isdir(folder_path):
-        print(f"Processing images in folder: {folder_path}")
-        
-        valid_extensions = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
-        
-        for filename in os.listdir(folder_path):
-            if filename.lower().endswith(valid_extensions):
-                image_path = os.path.join(folder_path, filename)
-                print(f"\n--- Processing: {filename} ---")
-                
-                try:
-                    grouped_boxes, grouped_texts = processor.perform_ocr(image_path)
-                    
-                    print("--- Grouped Texts ---")
-                    
-                    for i, group in enumerate(grouped_texts):
-                        # group is a list of tuples (text, confidence) usually, or just text?
-                        # Based on line 59: t_group = [item[1] for item in group]
-                        # And line 47 combined_data = list(zip(raw_boxes, raw_texts))
-                        # paddleocr result[0]['rec_texts'] is usually just a list of (text, confidence) tuples.
-                        # So item[1] in line 59 would be the (text, confidence) tuple if raw_texts elements are (text, conf).
-                        # Wait, let's look at `paddleocr` docs or common usage. 
-                        # Usually `ocr.predict` (or just `ocr.ocr`) returns `[[[box], (text, conf)], ...]`.
-                        # But here `result = self.ocr.predict(image_path)`.
-                        # The code at line 43 says `raw_texts = result[0]['rec_texts']`.
-                        # This implies `predict` returns a dict-like structure or similar.
-                        # Assuming the existing code works, `grouped_texts` contains lists of whatever `raw_texts` contains.
-                        # If `raw_texts` contains strings, then `group` contains strings.
-                        # If `raw_texts` contains (text, conf), then `group` contains (text, conf).
-                        # Let's just print the group content to be safe.
-                        print(f"Group {i+1}: {group}")
-
-                except Exception as e:
-                    print(f"Error processing {filename}: {e}")
-    else:
-        print(f"Folder not found: {folder_path}")

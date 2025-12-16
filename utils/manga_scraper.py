@@ -244,35 +244,3 @@ class MangaScraper:
         """
         if self.driver:
             self.driver.quit()
-
-# Example usage (commented out or active):
-if __name__ == "__main__":
-    # Create an instance of MangaScraper
-    scraper = MangaScraper()
-    
-    try:
-        # Navigate to a URL
-        scraper.navigate_to_url("https://kurotoon.com/read/mras-farm-chapter-20")
-        # scraper.navigate_to_url("https://battwo.com/chapter/3995430")
-        
-        # Scroll to load all images
-        scraper.scroll_to_bottom(scroll_step=5000)
-        
-        # Extract image URLs
-        # Use helper to format the complex class string
-        # class_names = "md--page ls limit-width limit-height mx-auto"
-        # selector = scraper.format_class_names(class_names) + " > img"
-        # image_urls = scraper.get_image_urls(css_selector=selector)
-        image_urls = scraper.get_image_urls(css_selector='.space-y-2 img') 
-        
-        # Download images (only if we found any)
-        if image_urls:
-            scraper.download_images(image_urls)
-
-        # Keep the browser open for a bit to see the result
-        time.sleep(10)
-        
-    finally:
-        # Close the driver
-        print("Driver closed.")
-        scraper.close_driver()
